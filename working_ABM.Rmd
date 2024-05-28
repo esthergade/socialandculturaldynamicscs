@@ -1,0 +1,245 @@
+---
+title: "Untitled"
+author: "etg"
+date: "2024-05-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(R6)
+library(ggplot2)
+```
+
+
+```{r}
+# Define the Agent class
+Agent <- R6Class(
+  "agent",
+  public = list(
+    id = NULL,
+    group = NULL,
+    office = NULL,
+    time_spent = NULL,
+    stress = NULL,
+    work_hours = NULL,
+    sports_hours = NULL,
+    breaks_taken = NULL,
+    interactions = NULL,
+    
+    initialize = function(id, group, office, work_hours, sports_hours, breaks_taken) {
+      self$id <- id
+      self$group <- group
+      self$office <- office
+      self$time_spent <- 0
+      self$stress <- sample(1:3, 1)  # Random initial stress level
+      self$work_hours <- work_hours
+      self$sports_hours <- sports_hours
+      self$breaks_taken <- breaks_taken
+      self$interactions <- list()
+    },
+    
+    work = function() {
+      self$time_spent <- self$time_spent + 1
+      self$stress <- self$stress + 1  # Increase stress by 1 each work hour
+    },
+    
+    take_break = function() {
+      self$time_spent <- self$time_spent + 1
+      self$stress <- max(0, self$stress - 1)  # Decrease stress by 1 during break
+    },
+    
+    do_sports = function() {
+      self$time_spent <- self$time_spent + 1
+      self$stress <- max(0, self$stress - 2)  # Decrease stress by 2 per hour of sports
+    },
+    
+    reset_stress = function() {
+      self$stress <- self$stress / 2  # Reduce stress by half at the end of the day
+    },
+    
+    adjust_activities = function() {
+      if (self$group == "Experimental") {
+        if (self$stress >= 1) {
+          self$work_hours <- as.numeric(max(0, min(8, self$work_hours - 1)))
+          self$sports_hours <- as.numeric(min(2, self$sports_hours + 2))
+          self$breaks_taken <- as.numeric(min(3, self$breaks_taken + 1))
+        } else if (self$stress <= 0.5) {
+          self$work_hours <- as.numeric(min(8, self$work_hours + 1))  # Ensure work_hours does not exceed 8
+          self$sports_hours <- as.numeric(max(0, self$sports_hours - 1))
+          self$breaks_taken <- as.numeric(max(1, self$breaks_taken - 1))  # Ensure at least one break is taken
+        }
+
+        # Ensure values are within valid ranges
+        self$work_hours <- max(0, min(8, self$work_hours))
+        self$sports_hours <- max(0, min(2, self$sports_hours))
+        self$breaks_taken <- max(1, min(3, self$breaks_taken))  # Ensure at least one break is taken
+      }
+    },
+    
+    daily_routine = function() {
+      for (i in 1:self$work_hours) {
+        self$work()
+      }
+      for (i in 1:self$sports_hours) {
+        self$do_sports()
+      }
+      for (i in 1:self$breaks_taken) {
+        self$take_break()
+      }
+    },
+    
+    log_interaction = function(other_id, effect) {
+      self$interactions <- append(self$interactions, list(list(other_id = other_id, effect = effect)))
+    },
+    
+    influence_stress = function(neighbor_stress) {
+      self$stress <- self$stress + (neighbor_stress * 0.1)  # Influence stress based on neighbor's stress level
+      self$stress <- max(0, self$stress)  # Ensure stress is not negative
+    }
+  )
+)
+
+```
+
+```{r}
+# Number of agents
+num_agents <- 50
+agents <- list()
+
+# Experimental group
+for (i in 1:(num_agents/2)) {
+  work_hours <- as.numeric(sample(5:8, 1))  # works between 5 to 8 hours 
+  sports_hours <- as.numeric(sample(1:3, 1))
+  breaks_taken <- as.numeric(sample(1:2, 1))
+  agents[[i]] <- Agent$new(id = i, group = "Experimental", office = paste0("Office ", i), 
+                            work_hours = work_hours, sports_hours = sports_hours, 
+                            breaks_taken = breaks_taken)
+}
+
+# Control group
+for (i in ((num_agents/2) + 1):num_agents) {
+  work_hours <- as.numeric(sample(5:8, 1))  
+  sports_hours <- 0
+  breaks_taken <- as.numeric(sample(1:2, 1))
+  agents[[i]] <- Agent$new(id = i, group = "Control", office = paste0("Office ", i), 
+                            work_hours = work_hours, sports_hours = sports_hours, 
+                            breaks_taken = breaks_taken)
+}
+```
+
+```{r}
+# Initialize the world
+n <- 10  # Assuming a 10x10 grid
+world <- matrix(0, nrow = n, ncol = n)
+
+# Place agents randomly in the world
+for (i in 1:num_agents) {
+  repeat {
+    x <- sample(1:n, 1)
+    y <- sample(1:n, 1)
+    if (world[x, y] == 0) {
+      world[x, y] <- i
+      break
+    }
+  }
+}
+```
+
+
+
+```{r}
+# Function to run the simulation for a number of days
+
+run_simulation <- function(days, world, agents, n) {
+  results <- data.frame(
+    day = integer(),
+    id = integer(),
+    group = character(),
+    work_hours = integer(),
+    sports_hours = integer(),
+    breaks_taken = integer(),
+    stress = numeric()
+  )
+  
+  for (day in 1:days) {
+    for (agent in agents) {
+      agent$adjust_activities()
+      agent$daily_routine()
+      agent$reset_stress()
+      results <- rbind(results, data.frame(
+        day = day,
+        id = agent$id,
+        group = agent$group,
+        work_hours = agent$work_hours,
+        sports_hours = agent$sports_hours,
+        breaks_taken = agent$breaks_taken,
+        stress = agent$stress
+      ))
+    }
+  }
+  
+  return(results)
+}
+
+
+
+num_days <- 30
+
+# Run the simulation and store the results
+results <- run_simulation(num_days, world, agents, n)
+
+# Print the results
+print(results)
+
+```
+```{r}
+# plot stress levels over time
+ggplot(results, aes(x = day, y = stress, color = group)) +
+  geom_line(aes(group = id), alpha = 0.3) +  # sindividual lines
+  geom_smooth(aes(group = group), se = FALSE, size = 1.2) +  #  average trend lines
+  labs(title = "Stress Levels Over Time", x = "Day", y = "Stress Level") +
+  theme_minimal()
+
+# finding average
+summary <- aggregate(stress ~ group + day, data = results, FUN = mean)
+
+# plot average stress 
+ggplot(summary, aes(x = day, y = stress, color = group)) +
+  geom_line(size = 1.2) +
+  labs(title = "Average Stress Levels Over Time by Group", x = "Day", y = "Average Stress Level") +
+  theme_minimal()
+```
+```{r}
+control_stress <- subset(results, group == "Control")$stress
+experimental_stress <- subset(results, group == "Experimental")$stress
+
+# t-test
+t_test <- t.test(control_stress, experimental_stress)
+
+
+print(t_test)
+```
+```{r}
+# Assuming 'results' contains the data collected from the simulation
+# and there is a column named 'group' to indicate group membership
+
+# Filter data for the experimental group
+experimental_results <- subset(results, group == "Experimental")
+
+# Aggregate stress level data to calculate daily averages for the experimental group
+daily_avg_stress_experimental <- aggregate(stress ~ day, data = experimental_results, FUN = mean)
+
+# Plot time series of average stress levels for the experimental group
+library(ggplot2)
+
+ggplot(daily_avg_stress_experimental, aes(x = day, y = stress)) +
+  geom_line() +
+  labs(title = "Average Stress Levels Over 30 Days (Experimental Group)", x = "Day", y = "Average Stress Level") +
+  theme_minimal()
+
+```
+
